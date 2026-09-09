@@ -7,13 +7,14 @@ The control panel is built with Telegram inline buttons. It supports:
 - Product add/remove, including links and PID/LID values.
 - Full product list with separate tick selection for stock scans.
 - Multiple pincodes per product.
+- Pincode list with remove buttons.
 - Start, stop, clear, status, and results controls.
 - 1, 2, 5, and 10 second scan intervals.
 - Current buy/selling price display and price-change notifications.
 - Stock by product and pincode, locations, product details, and separate errors.
 - Repeats an in-stock alert on every scan cycle until Stop scan is pressed.
 - Bank offer snapshots and notifications when bank offers are added, removed, or changed.
-- Separate bank-alert tick selection per product.
+- Dedicated Bank offers button with separate bank-alert tick selection per product.
 - Per-user mute and persistent settings/results.
 - Admin approval, rejection, revocation, and a user control panel.
 

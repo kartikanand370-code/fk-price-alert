@@ -148,7 +148,7 @@ function userPanel() {
     [{ text: 'Add product link / PID', callback_data: 'add_help' }, { text: 'Remove product', callback_data: 'remove_help' }],
     [{ text: 'Products', callback_data: 'show_products' }, { text: 'Pincodes', callback_data: 'show_pincodes' }],
     [{ text: 'Choose scan products', callback_data: 'scan_menu' }, { text: 'Stop scan', callback_data: 'stop_scan' }],
-    [{ text: 'Choose bank alerts', callback_data: 'bank_menu' }, { text: 'Mute', callback_data: 'mute_toggle' }],
+    [{ text: 'Bank offers', callback_data: 'bank_menu' }],
     [{ text: 'Status', callback_data: 'status' }, { text: 'Clear results', callback_data: 'clear_results' }]
   ]);
 }
@@ -265,6 +265,10 @@ async function openBankMenu(user) {
 
 function pincodeList(user) {
   return user.pincodes.length ? `<b>Pincodes (${user.pincodes.length})</b>\n${user.pincodes.map(pin => `<code>${html(pin)}</code>`).join(', ')}` : '<b>Pincodes</b>\nNo pincodes added.';
+}
+
+function pincodeButtons(user) {
+  return user.pincodes.map(pin => [{ text: `Remove ${pin}`, callback_data: `rmpin:${pin}` }]);
 }
 
 function formatPrice(price, currency = 'INR') {
@@ -449,7 +453,7 @@ async function handleCommand(state, user, command) {
     return;
   }
   if (name === 'help') {
-    await sendMessage(user.chatId, '<b>Commands</b>\n/add &lt;Flipkart link|PID|LID&gt;\n/remove &lt;PID|LID|link&gt;\n/pin &lt;six digit pincode&gt;\n/rmpin &lt;pincode&gt;\n/scan opens the product checklist\n/stop, /status, /results\n/interval &lt;1|2|5|10&gt;\n/bankalerts &lt;on|off&gt; or use Choose bank alerts\n/mute &lt;on|off&gt;\n/clear\n\nUse Products to see the full list. Send a Flipkart product link directly to add it.');
+    await sendMessage(user.chatId, '<b>Commands</b>\n/add &lt;Flipkart link|PID|LID&gt;\n/remove &lt;PID|LID|link&gt;\n/pin &lt;six digit pincode&gt;\n/rmpin &lt;pincode&gt;\n/scan opens the product checklist\n/stop, /status, /results\n/interval &lt;1|2|5|10&gt;\n/bankalerts &lt;on|off&gt; sets all bank-offer products\n/clear\n\nUse Products to see the full list. Use Bank offers to choose only the products whose bank offers should be checked.');
     return;
   }
   if (name === 'admin') {
@@ -483,7 +487,7 @@ async function handleCommand(state, user, command) {
     if (!isValidPincode(pin)) return sendMessage(user.chatId, 'Pincode must contain exactly six digits.');
     user.pincodes = uniquePincodes([...user.pincodes, pin]);
     await save(state);
-    await sendMessage(user.chatId, `Pincode added: <code>${pin}</code>`);
+    await sendMessage(user.chatId, `Pincode added: <code>${pin}</code>\n\n${pincodeList(user)}`, { reply_markup: telegramKeyboard(pincodeButtons(user)) });
     return;
   }
   if (name === 'rmpin') {
@@ -518,7 +522,7 @@ async function handleCommand(state, user, command) {
   if (name === 'stop') return setRunning(state, user, false);
   if (name === 'clear') { user.results = []; await save(state); return sendMessage(user.chatId, 'Saved results cleared.'); }
   if (name === 'products') return sendMessage(user.chatId, productList(user), { reply_markup: telegramKeyboard(productButtons(user)) });
-  if (name === 'pincodes') return sendMessage(user.chatId, pincodeList(user));
+  if (name === 'pincodes') return sendMessage(user.chatId, pincodeList(user), { reply_markup: telegramKeyboard(pincodeButtons(user)) });
   if (name === 'results') return sendLong(user.chatId, formatResults(user));
   if (name === 'status') return sendMessage(user.chatId, `<b>Status</b>\nProducts: ${user.products.length}/${MAX_PRODUCTS}\nScan selection: ${selectedScanProducts(user).length}\nPincodes: ${user.pincodes.length}\nScanning: ${user.running ? 'ON' : 'OFF'}\nBank alert selection: ${selectedBankAlertProducts(user).length}\nInterval: ${user.interval}s\nLast scan: ${html(user.lastScanAt || 'Never')}\n${user.lastError ? `Last error: ${html(user.lastError)}` : ''}`);
   return sendMessage(user.chatId, 'Unknown command. Use /help.', { reply_markup: userPanel() });
@@ -545,7 +549,7 @@ async function handleCallback(state, query) {
   if (data === 'add_help') return sendMessage(user.chatId, 'Send a Flipkart product link, or use /add PID/LID/SKU.');
   if (data === 'remove_help') return sendMessage(user.chatId, 'Use /remove PID/LID or tap a product in the Products list.', { reply_markup: telegramKeyboard(productButtons(user)) });
   if (data === 'show_products') return sendMessage(user.chatId, productList(user), { reply_markup: telegramKeyboard(productButtons(user)) });
-  if (data === 'show_pincodes') return sendMessage(user.chatId, pincodeList(user));
+  if (data === 'show_pincodes') return sendMessage(user.chatId, pincodeList(user), { reply_markup: telegramKeyboard(pincodeButtons(user)) });
   if (data === 'start_scan' || data === 'scan_menu') return openScanMenu(user);
   if (data === 'stop_scan') return setRunning(state, user, false);
   if (data === 'bank_toggle' || data === 'bank_menu') return openBankMenu(user);
@@ -568,6 +572,12 @@ async function handleCallback(state, query) {
     user.bankAlerts = selectedBankAlertProducts(user).length > 0;
     await save(state);
     return sendMessage(user.chatId, `Bank alerts saved for ${selectedBankAlertProducts(user).length} product${selectedBankAlertProducts(user).length === 1 ? '' : 's'}.`, { reply_markup: userPanel() });
+  }
+  if (data.startsWith('rmpin:')) {
+    const pin = data.slice(6);
+    user.pincodes = user.pincodes.filter(value => value !== pin);
+    await save(state);
+    return sendMessage(user.chatId, `Pincode removed: <code>${html(pin)}</code>\n\n${pincodeList(user)}`, { reply_markup: telegramKeyboard(pincodeButtons(user)) });
   }
   if (data.startsWith('scanprod:') || data.startsWith('bankprod:')) {
     const kind = data.startsWith('scanprod:') ? 'scan' : 'bank';
@@ -620,7 +630,7 @@ async function handleUpdate(update) {
   if (pin) {
     user.pincodes = uniquePincodes([...user.pincodes, pin]);
     await save(state);
-    return sendMessage(user.chatId, `Pincode added: <code>${pin}</code>`);
+    return sendMessage(user.chatId, `Pincode added: <code>${pin}</code>\n\n${pincodeList(user)}`, { reply_markup: telegramKeyboard(pincodeButtons(user)) });
   }
   const product = parseProductInput(text);
   if (product) {
