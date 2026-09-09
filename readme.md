@@ -40,6 +40,7 @@ Required:
 
 - `TELEGRAM_BOT_TOKEN`: token from BotFather. Keep it private and rotate it if exposed.
 - `TELEGRAM_ADMIN_ID`: numeric Telegram account ID that approves users.
+- `BOT_HEARTBEAT_MS`: optional worker heartbeat, default 20000 milliseconds. This helps prevent inactivity on some hosts but cannot override a host's sleep policy.
 - `FLIPKART_API_BASE_URL` for live mode, or `FLIPKART_API_MODE=demo` for labelled sample data.
 
 Optional:
