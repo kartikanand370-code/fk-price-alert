@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+data/telegram-state.json
+node_modules/
+
