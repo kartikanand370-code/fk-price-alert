@@ -1,0 +1,12 @@
+{
+  "name": "flipkart-stock-signal",
+  "private": true,
+  "description": "Flipkart Stock Signal Telegram bot and authorized stock adapter",
+  "scripts": {
+    "start": "node telegram-bot.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
