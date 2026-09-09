@@ -5,12 +5,15 @@ This project is a Telegram bot, not a browser app. Each approved Telegram user g
 The control panel is built with Telegram inline buttons. It supports:
 
 - Product add/remove, including links and PID/LID values.
+- Full product list with separate tick selection for stock scans.
 - Multiple pincodes per product.
 - Start, stop, clear, status, and results controls.
 - 1, 2, 5, and 10 second scan intervals.
 - Current buy/selling price display and price-change notifications.
 - Stock by product and pincode, locations, product details, and separate errors.
+- Repeats an in-stock alert on every scan cycle until Stop scan is pressed.
 - Bank offer snapshots and notifications when bank offers are added, removed, or changed.
+- Separate bank-alert tick selection per product.
 - Per-user mute and persistent settings/results.
 - Admin approval, rejection, revocation, and a user control panel.
 
@@ -69,9 +72,9 @@ For Render Web Service, use build command `npm install`, start command `npm star
 - `/add <Flipkart link|PID|LID|SKU>` adds a product.
 - `/remove <PID|LID|link>` removes a product.
 - `/pin <six digit pincode>` and `/rmpin <pincode>` manage pincodes.
-- `/scan` and `/stop` control scanning.
+- `/scan` opens the product checklist; tick the products to check and press Start scan. `/stop` stops scanning.
 - `/interval <1|2|5|10>` changes the refresh interval.
-- `/bankalerts <on|off>` tracks bank-offer changes.
+- `/bankalerts <on|off>` enables/disables bank-offer changes for all products; the Choose bank alerts button selects individual products.
 - `/mute <on|off>` suppresses Telegram alerts.
 - `/status`, `/products`, `/pincodes`, `/results`, and `/clear` show or clear data.
 - `/admin` opens the admin approval panel for the configured administrator.

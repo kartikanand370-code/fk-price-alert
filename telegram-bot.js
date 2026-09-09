@@ -84,10 +84,12 @@ function newUser(from, chatId) {
     approved: String(from.id) === ADMIN_ID,
     pending: false,
     products: [],
+    scanProducts: null,
     pincodes: [],
     category: 'general',
     interval: 1,
     bankAlerts: false,
+    bankAlertProducts: [],
     muted: false,
     running: false,
     results: [],
@@ -145,8 +147,8 @@ function userPanel() {
   return telegramKeyboard([
     [{ text: 'Add product link / PID', callback_data: 'add_help' }, { text: 'Remove product', callback_data: 'remove_help' }],
     [{ text: 'Products', callback_data: 'show_products' }, { text: 'Pincodes', callback_data: 'show_pincodes' }],
-    [{ text: 'Start scan', callback_data: 'start_scan' }, { text: 'Stop scan', callback_data: 'stop_scan' }],
-    [{ text: 'Bank alerts', callback_data: 'bank_toggle' }, { text: 'Mute', callback_data: 'mute_toggle' }],
+    [{ text: 'Choose scan products', callback_data: 'scan_menu' }, { text: 'Stop scan', callback_data: 'stop_scan' }],
+    [{ text: 'Choose bank alerts', callback_data: 'bank_menu' }, { text: 'Mute', callback_data: 'mute_toggle' }],
     [{ text: 'Status', callback_data: 'status' }, { text: 'Clear results', callback_data: 'clear_results' }]
   ]);
 }
@@ -194,11 +196,71 @@ async function requireAccess(state, user) {
 
 function productList(user) {
   if (!user.products.length) return '<b>Products</b>\nNo products added.';
-  return `<b>Products (${user.products.length}/${MAX_PRODUCTS})</b>\n${user.products.map((product, index) => `${index + 1}. <code>${html(product)}</code>`).join('\n')}`;
+  const scanSet = new Set(selectedScanProducts(user));
+  const bankSet = new Set(selectedBankAlertProducts(user));
+  return `<b>Products (${user.products.length}/${MAX_PRODUCTS})</b>\n${user.products.map((product, index) => `${index + 1}. ${scanSet.has(product) ? '✅' : '⬜'} <code>${html(product)}</code> | bank ${bankSet.has(product) ? '✅' : '⬜'}`).join('\n')}`;
 }
 
 function productButtons(user) {
   return user.products.slice(0, 20).map(product => [{ text: `Remove ${product}`, callback_data: `rmprod:${product}` }]);
+}
+
+function selectedScanProducts(user) {
+  const configured = Array.isArray(user.scanProducts) ? user.scanProducts : user.products;
+  return uniqueProductIds(configured).filter(product => user.products.includes(product));
+}
+
+function selectedBankAlertProducts(user) {
+  const configured = Array.isArray(user.bankAlertProducts)
+    ? user.bankAlertProducts
+    : (user.bankAlerts ? user.products : []);
+  return uniqueProductIds(configured).filter(product => user.products.includes(product));
+}
+
+function selectionRows(user, kind) {
+  const selected = new Set(kind === 'scan' ? selectedScanProducts(user) : selectedBankAlertProducts(user));
+  const prefix = kind === 'scan' ? 'scanprod:' : 'bankprod:';
+  const rows = [];
+  for (let index = 0; index < user.products.length; index += 2) {
+    rows.push(user.products.slice(index, index + 2).map((product, offset) => ({
+      text: `${selected.has(product) ? '✅' : '⬜'} ${product}`,
+      callback_data: `${prefix}${index + offset}`
+    })));
+  }
+  rows.push([
+    { text: '✅ Select all', callback_data: kind === 'scan' ? 'scan_all' : 'bank_all' },
+    { text: '⬜ Clear all', callback_data: kind === 'scan' ? 'scan_none' : 'bank_none' }
+  ]);
+  rows.push([{ text: kind === 'scan' ? 'Start scan with selection' : 'Save bank selection', callback_data: kind === 'scan' ? 'scan_start' : 'bank_done' }]);
+  return rows;
+}
+
+function scanSelectionMessage(user) {
+  const selected = selectedScanProducts(user);
+  return `<b>Choose products for stock checking</b>\nSelected: ${selected.length}/${user.products.length}\nTick/untick products below, then press Start scan.`;
+}
+
+function bankSelectionMessage(user) {
+  const selected = selectedBankAlertProducts(user);
+  return `<b>Choose bank-alert products</b>\nSelected: ${selected.length}/${user.products.length}\nOnly selected products will be checked for bank-offer changes.`;
+}
+
+function scanSelectionMarkup(user) {
+  return telegramKeyboard(selectionRows(user, 'scan'));
+}
+
+function bankSelectionMarkup(user) {
+  return telegramKeyboard(selectionRows(user, 'bank'));
+}
+
+async function openScanMenu(user) {
+  if (!user.products.length) return sendMessage(user.chatId, 'Add at least one product first with the Add product button or /add.');
+  return sendMessage(user.chatId, scanSelectionMessage(user), { reply_markup: scanSelectionMarkup(user) });
+}
+
+async function openBankMenu(user) {
+  if (!user.products.length) return sendMessage(user.chatId, 'Add at least one product first before choosing bank alerts.');
+  return sendMessage(user.chatId, bankSelectionMessage(user), { reply_markup: bankSelectionMarkup(user) });
 }
 
 function pincodeList(user) {
@@ -269,17 +331,19 @@ async function scanUser(userId, notifyErrors = false) {
     const state = await readState();
     const user = state.users?.[userId];
     if (!user || !approved(user) || !user.running) return;
-    if (!user.products.length || !user.pincodes.length) {
+    const scanProducts = selectedScanProducts(user);
+    const bankAlertProducts = new Set(selectedBankAlertProducts(user));
+    if (!scanProducts.length || !user.pincodes.length) {
       user.running = false;
       await save(state);
       await sendMessage(user.chatId, 'Add at least one product and one six-digit pincode before starting.');
       stopLoop(userId);
       return;
     }
-    const jobs = user.products.flatMap(productId => user.pincodes.map(pincode => ({
+    const jobs = scanProducts.flatMap(productId => user.pincodes.map(pincode => ({
       productId,
       pincode,
-      bankOfferCheck: user.bankAlerts === true
+      bankOfferCheck: bankAlertProducts.has(productId)
     })));
     const results = [];
     let mode = user.lastMode;
@@ -319,8 +383,7 @@ async function scanUser(userId, notifyErrors = false) {
     const alerts = [];
     rows.forEach(row => {
       const previous = previousByKey.get(row.key);
-      const newStock = row.pincodes.filter(pincode => !(previous?.pincodes || []).includes(pincode));
-      if (newStock.length && !user.muted) alerts.push(`Stock found: ${row.name} at ${newStock.join(', ')}`);
+      if (row.pincodes.length && !user.muted) alerts.push(`Stock available: ${row.name} at ${row.pincodes.join(', ')}. Press Stop scan to stop these alerts.`);
       if (previous && previous.price !== null && previous.price !== undefined && row.price !== null && row.price !== undefined && Number(previous.price) !== Number(row.price) && !user.muted) {
         alerts.push(`Price changed: ${row.name}\n${formatPrice(previous.price, previous.currency)} -> ${formatPrice(row.price, row.currency)}`);
       }
@@ -360,14 +423,14 @@ function stopLoop(userId) {
 }
 
 async function startScan(state, user) {
-  if (!user.products.length || !user.pincodes.length) {
-    await sendMessage(user.chatId, 'Add at least one product and one six-digit pincode first.');
+  if (!selectedScanProducts(user).length || !user.pincodes.length) {
+    await sendMessage(user.chatId, 'Select at least one product and add one six-digit pincode first.', { reply_markup: userPanel() });
     return;
   }
   user.running = true;
   await save(state);
   startLoop(user.id, user.interval);
-  await sendMessage(user.chatId, `Scanning started every ${user.interval} second${user.interval === 1 ? '' : 's'}.`, { reply_markup: userPanel() });
+  await sendMessage(user.chatId, `Scanning ${selectedScanProducts(user).length} selected product${selectedScanProducts(user).length === 1 ? '' : 's'} every ${user.interval} second${user.interval === 1 ? '' : 's'}.`, { reply_markup: userPanel() });
 }
 
 async function setRunning(state, user, running) {
@@ -386,7 +449,7 @@ async function handleCommand(state, user, command) {
     return;
   }
   if (name === 'help') {
-    await sendMessage(user.chatId, '<b>Commands</b>\n/add &lt;Flipkart link|PID|LID&gt;\n/remove &lt;PID|LID|link&gt;\n/pin &lt;six digit pincode&gt;\n/rmpin &lt;pincode&gt;\n/scan, /stop, /status, /results\n/interval &lt;1|2|5|10&gt;\n/bankalerts &lt;on|off&gt;\n/mute &lt;on|off&gt;\n/clear\n\nSend a Flipkart product link directly to add it.');
+    await sendMessage(user.chatId, '<b>Commands</b>\n/add &lt;Flipkart link|PID|LID&gt;\n/remove &lt;PID|LID|link&gt;\n/pin &lt;six digit pincode&gt;\n/rmpin &lt;pincode&gt;\n/scan opens the product checklist\n/stop, /status, /results\n/interval &lt;1|2|5|10&gt;\n/bankalerts &lt;on|off&gt; or use Choose bank alerts\n/mute &lt;on|off&gt;\n/clear\n\nUse Products to see the full list. Send a Flipkart product link directly to add it.');
     return;
   }
   if (name === 'admin') {
@@ -401,13 +464,16 @@ async function handleCommand(state, user, command) {
     if (!product) return sendMessage(user.chatId, 'Could not find a valid PID/SKU. Send a full product link or use /add PID123.');
     if (!user.products.includes(product)) user.products = [...user.products, product].slice(0, MAX_PRODUCTS);
     await save(state);
-    await sendMessage(user.chatId, `${user.products.includes(product) ? 'Added' : 'Limit reached'}: <code>${html(product)}</code>`, { reply_markup: userPanel() });
+    await sendMessage(user.chatId, `${user.products.includes(product) ? 'Added' : 'Limit reached'}: <code>${html(product)}</code>\n\n${productList(user)}`, { reply_markup: userPanel() });
     return;
   }
   if (name === 'remove') {
     const product = parseProductInput(args);
     if (!product) return sendMessage(user.chatId, 'Send the PID/LID or product link to remove.');
     user.products = user.products.filter(value => value !== product);
+    if (Array.isArray(user.scanProducts)) user.scanProducts = user.scanProducts.filter(value => value !== product);
+    if (Array.isArray(user.bankAlertProducts)) user.bankAlertProducts = user.bankAlertProducts.filter(value => value !== product);
+    user.bankAlerts = selectedBankAlertProducts(user).length > 0;
     await save(state);
     await sendMessage(user.chatId, `Removed: <code>${html(product)}</code>`);
     return;
@@ -437,6 +503,7 @@ async function handleCommand(state, user, command) {
   }
   if (name === 'bankalerts') {
     user.bankAlerts = ['on', 'true', 'yes'].includes(args.toLowerCase());
+    user.bankAlertProducts = user.bankAlerts ? [...user.products] : [];
     await save(state);
     await sendMessage(user.chatId, `Bank offer alerts: ${user.bankAlerts ? 'ON' : 'OFF'}. First scan creates the comparison baseline.`);
     return;
@@ -447,13 +514,13 @@ async function handleCommand(state, user, command) {
     await sendMessage(user.chatId, `Notifications muted: ${user.muted ? 'ON' : 'OFF'}.`);
     return;
   }
-  if (name === 'scan') return startScan(state, user);
+  if (name === 'scan') return openScanMenu(user);
   if (name === 'stop') return setRunning(state, user, false);
   if (name === 'clear') { user.results = []; await save(state); return sendMessage(user.chatId, 'Saved results cleared.'); }
   if (name === 'products') return sendMessage(user.chatId, productList(user), { reply_markup: telegramKeyboard(productButtons(user)) });
   if (name === 'pincodes') return sendMessage(user.chatId, pincodeList(user));
   if (name === 'results') return sendLong(user.chatId, formatResults(user));
-  if (name === 'status') return sendMessage(user.chatId, `<b>Status</b>\nProducts: ${user.products.length}/${MAX_PRODUCTS}\nPincodes: ${user.pincodes.length}\nScanning: ${user.running ? 'ON' : 'OFF'}\nBank offer alerts: ${user.bankAlerts ? 'ON' : 'OFF'}\nInterval: ${user.interval}s\nLast scan: ${html(user.lastScanAt || 'Never')}\n${user.lastError ? `Last error: ${html(user.lastError)}` : ''}`);
+  if (name === 'status') return sendMessage(user.chatId, `<b>Status</b>\nProducts: ${user.products.length}/${MAX_PRODUCTS}\nScan selection: ${selectedScanProducts(user).length}\nPincodes: ${user.pincodes.length}\nScanning: ${user.running ? 'ON' : 'OFF'}\nBank alert selection: ${selectedBankAlertProducts(user).length}\nInterval: ${user.interval}s\nLast scan: ${html(user.lastScanAt || 'Never')}\n${user.lastError ? `Last error: ${html(user.lastError)}` : ''}`);
   return sendMessage(user.chatId, 'Unknown command. Use /help.', { reply_markup: userPanel() });
 }
 
@@ -479,15 +546,50 @@ async function handleCallback(state, query) {
   if (data === 'remove_help') return sendMessage(user.chatId, 'Use /remove PID/LID or tap a product in the Products list.', { reply_markup: telegramKeyboard(productButtons(user)) });
   if (data === 'show_products') return sendMessage(user.chatId, productList(user), { reply_markup: telegramKeyboard(productButtons(user)) });
   if (data === 'show_pincodes') return sendMessage(user.chatId, pincodeList(user));
-  if (data === 'start_scan') return startScan(state, user);
+  if (data === 'start_scan' || data === 'scan_menu') return openScanMenu(user);
   if (data === 'stop_scan') return setRunning(state, user, false);
-  if (data === 'bank_toggle') { user.bankAlerts = !user.bankAlerts; await save(state); return sendMessage(user.chatId, `Bank offer alerts: ${user.bankAlerts ? 'ON' : 'OFF'}.`); }
+  if (data === 'bank_toggle' || data === 'bank_menu') return openBankMenu(user);
   if (data === 'mute_toggle') { user.muted = !user.muted; await save(state); return sendMessage(user.chatId, `Notifications muted: ${user.muted ? 'ON' : 'OFF'}.`); }
   if (data === 'status') return handleCommand(state, user, { name: 'status', args: '' });
   if (data === 'clear_results') return handleCommand(state, user, { name: 'clear', args: '' });
+  if (data === 'scan_all' || data === 'scan_none') {
+    user.scanProducts = data === 'scan_all' ? [...user.products] : [];
+    await save(state);
+    return sendMessage(user.chatId, scanSelectionMessage(user), { reply_markup: scanSelectionMarkup(user) });
+  }
+  if (data === 'bank_all' || data === 'bank_none') {
+    user.bankAlertProducts = data === 'bank_all' ? [...user.products] : [];
+    user.bankAlerts = user.bankAlertProducts.length > 0;
+    await save(state);
+    return sendMessage(user.chatId, bankSelectionMessage(user), { reply_markup: bankSelectionMarkup(user) });
+  }
+  if (data === 'scan_start') return startScan(state, user);
+  if (data === 'bank_done') {
+    user.bankAlerts = selectedBankAlertProducts(user).length > 0;
+    await save(state);
+    return sendMessage(user.chatId, `Bank alerts saved for ${selectedBankAlertProducts(user).length} product${selectedBankAlertProducts(user).length === 1 ? '' : 's'}.`, { reply_markup: userPanel() });
+  }
+  if (data.startsWith('scanprod:') || data.startsWith('bankprod:')) {
+    const kind = data.startsWith('scanprod:') ? 'scan' : 'bank';
+    const index = Number(data.slice(kind === 'scan' ? 9 : 9));
+    const product = user.products[index];
+    if (!product) return sendMessage(user.chatId, 'That product is no longer in your list.');
+    const field = kind === 'scan' ? 'scanProducts' : 'bankAlertProducts';
+    const current = kind === 'scan' ? selectedScanProducts(user) : selectedBankAlertProducts(user);
+    const next = current.includes(product) ? current.filter(value => value !== product) : [...current, product];
+    user[field] = next;
+    if (kind === 'bank') user.bankAlerts = next.length > 0;
+    await save(state);
+    return sendMessage(user.chatId, kind === 'scan' ? scanSelectionMessage(user) : bankSelectionMessage(user), {
+      reply_markup: kind === 'scan' ? scanSelectionMarkup(user) : bankSelectionMarkup(user)
+    });
+  }
   if (data.startsWith('rmprod:')) {
     const product = normalizeProductId(data.slice(7));
     user.products = user.products.filter(value => value !== product);
+    if (Array.isArray(user.scanProducts)) user.scanProducts = user.scanProducts.filter(value => value !== product);
+    if (Array.isArray(user.bankAlertProducts)) user.bankAlertProducts = user.bankAlertProducts.filter(value => value !== product);
+    user.bankAlerts = selectedBankAlertProducts(user).length > 0;
     await save(state);
     return sendMessage(user.chatId, `Removed: <code>${html(product)}</code>`);
   }
@@ -524,7 +626,7 @@ async function handleUpdate(update) {
   if (product) {
     if (!user.products.includes(product)) user.products = [...user.products, product].slice(0, MAX_PRODUCTS);
     await save(state);
-    return sendMessage(user.chatId, `Product added: <code>${html(product)}</code>`);
+    return sendMessage(user.chatId, `Product added: <code>${html(product)}</code>\n\n${productList(user)}`, { reply_markup: userPanel() });
   }
   await sendMessage(user.chatId, 'Send a Flipkart product link, a PID/LID, or a six-digit pincode. Use /help for commands.');
 }
@@ -584,5 +686,5 @@ module.exports = {
   parseProductInput,
   startHealthServer,
   start,
-  _test: { aggregateResults, newUser }
+  _test: { aggregateResults, newUser, selectedScanProducts, selectedBankAlertProducts, selectionRows }
 };
