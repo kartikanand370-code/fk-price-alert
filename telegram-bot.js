@@ -6,6 +6,7 @@ const TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const ADMIN_ID = String(process.env.TELEGRAM_ADMIN_ID || '').trim();
 const MAX_PRODUCTS = 50;
 const INTERVALS = [1, 2, 5, 10];
+const HEARTBEAT_MS = Math.max(20000, Number(process.env.BOT_HEARTBEAT_MS) || 20000);
 const loops = new Map();
 const activeScans = new Set();
 
@@ -548,7 +549,12 @@ async function start() {
   ]});
   await restoreLoops();
   console.log('Telegram bot is running.');
-  await poll();
+  const heartbeat = setInterval(() => { telegram('getMe').catch(() => {}); }, HEARTBEAT_MS);
+  try {
+    await poll();
+  } finally {
+    clearInterval(heartbeat);
+  }
 }
 
 if (require.main === module) start().catch(error => { console.error(error.message); process.exitCode = 1; });
