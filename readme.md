@@ -4,8 +4,9 @@ This project is a Telegram bot, not a browser app. Each approved Telegram user g
 
 The control panel is built with Telegram inline buttons. It supports:
 
-- Product add/remove, including links and PID/LID values.
-- Full product list with separate tick selection for stock scans.
+- Product add/remove, including links and PID/LID values. After every added link, the bot asks whether to add another product or finish.
+- Full product list with separate tick selection for Stock check.
+- Stock and bank-offer checks can be stopped separately, and the Stop checking menu can stop individual active products or everything.
 - Multiple pincodes per product.
 - Pincode list with remove buttons.
 - Start, stop, clear, status, and results controls.
@@ -14,7 +15,7 @@ The control panel is built with Telegram inline buttons. It supports:
 - Stock by product and pincode, locations, product details, and separate errors.
 - Repeats an in-stock alert on every scan cycle until Stop scan is pressed.
 - Bank offer snapshots and notifications when bank offers are added, removed, or changed.
-- Dedicated Bank offers button with separate bank-alert tick selection per product.
+- Dedicated Bank offers check button with separate product tick selection. It independently watches current buy price and bank offers and reports the before/after change.
 - Per-user mute and persistent settings/results.
 - Admin approval, rejection, revocation, and a user control panel.
 
@@ -73,9 +74,9 @@ For Render Web Service, use build command `npm install`, start command `npm star
 - `/add <Flipkart link|PID|LID|SKU>` adds a product.
 - `/remove <PID|LID|link>` removes a product.
 - `/pin <six digit pincode>` and `/rmpin <pincode>` manage pincodes.
-- `/scan` opens the product checklist; tick the products to check and press Start scan. `/stop` stops scanning.
+- `/scan` opens the Stock check checklist; tick the products to check and press Start stock check. Stop checking opens the mode/product stop menu.
 - `/interval <1|2|5|10>` changes the refresh interval.
-- `/bankalerts <on|off>` enables/disables bank-offer changes for all products; the Choose bank alerts button selects individual products.
+- `/bankalerts <on|off>` selects all/none for Bank offers check; the Bank offers check button starts the separate monitor.
 - `/mute <on|off>` suppresses Telegram alerts.
 - `/status`, `/products`, `/pincodes`, `/results`, and `/clear` show or clear data.
 - `/admin` opens the admin approval panel for the configured administrator.
