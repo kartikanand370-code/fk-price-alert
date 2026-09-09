@@ -59,7 +59,9 @@ npm install
 npm start
 ```
 
-The bot uses Telegram long polling so second-level intervals work. Run it on a persistent Node host such as Railway, Render, Fly.io, a VPS, or a similar worker service. A short-lived serverless function cannot guarantee 1/2/5/10 second scans. The existing `api/stock.js` route remains available for authorized server-to-server use, but it is not the bot worker.
+The bot uses Telegram long polling so second-level intervals work. It also exposes `/health` on the host-provided `PORT`, which makes it compatible with a Render Web Service. Run it on Railway, Render, Fly.io, a VPS, or a similar Node host. A short-lived serverless function cannot guarantee 1/2/5/10 second scans. The existing `api/stock.js` route remains available for authorized server-to-server use, but it is not the bot worker.
+
+For Render Web Service, use build command `npm install`, start command `npm start`, and health check path `/health`. The free tier may sleep after inactivity; the bot heartbeat does not override the host's sleep policy.
 
 ## Commands
 

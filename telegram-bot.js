@@ -1,3 +1,4 @@
+const http = require('node:http');
 const { checkStockJobs } = require('./api/stock');
 const { isValidProductId, isValidPincode, normalizeProductId, uniqueProductIds, uniquePincodes } = require('./lib/validation');
 const { readState, writeState } = require('./lib/store');
@@ -7,11 +8,26 @@ const ADMIN_ID = String(process.env.TELEGRAM_ADMIN_ID || '').trim();
 const MAX_PRODUCTS = 50;
 const INTERVALS = [1, 2, 5, 10];
 const HEARTBEAT_MS = Math.max(20000, Number(process.env.BOT_HEARTBEAT_MS) || 20000);
+const PORT = Number(process.env.PORT) || 3000;
 const loops = new Map();
 const activeScans = new Set();
 
 function sleep(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function startHealthServer() {
+  const server = http.createServer((request, response) => {
+    if (request.url === '/' || request.url === '/health') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ ok: true, service: 'flipkart-stock-signal' }));
+      return;
+    }
+    response.writeHead(404);
+    response.end('Not found');
+  });
+  server.listen(PORT, '0.0.0.0', () => console.log(`Health server listening on port ${PORT}.`));
+  return server;
 }
 
 function html(value) {
@@ -557,12 +573,16 @@ async function start() {
   }
 }
 
-if (require.main === module) start().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (require.main === module) {
+  startHealthServer();
+  start().catch(error => { console.error(error.message); process.exitCode = 1; });
+}
 
 module.exports = {
   handleUpdate,
   parseCommand,
   parseProductInput,
+  startHealthServer,
   start,
   _test: { aggregateResults, newUser }
 };
